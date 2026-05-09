@@ -11,6 +11,7 @@ struct SettingsView: View {
                     get: { settings.wantsStartAtLogin },
                     set: { settings.setStartAtLogin($0) }
                 ))
+                .disabled(!settings.isLoginItemAvailable)
 
                 Spacer()
 
@@ -26,10 +27,32 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            Text(settings.loginItemStatusText)
+                .font(.footnote)
+                .foregroundStyle(settings.isLoginItemAvailable ? Color.secondary : Color.orange)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if !settings.isLoginItemAvailable {
+                Text("Current app path: \(settings.appBundlePath)")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+            }
+
+            if settings.usesLaunchAgentFallback {
+                Text("Fallback plist: \(LaunchAgentLoginItem.plistURL.path)")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+            }
+
             if let loginItemError = settings.loginItemError {
                 Text(loginItemError)
                     .font(.footnote)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(settings.isLoginItemAvailable ? Color.red : Color.orange)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             if let libraryError = VideoLibraryStore.shared.errorMessage {

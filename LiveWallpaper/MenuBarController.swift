@@ -63,8 +63,7 @@ final class MenuBarController: NSObject {
         randomItem.isEnabled = !library.videos.isEmpty
         menu.addItem(randomItem)
 
-        let loginTitle = settings.wantsStartAtLogin ? "Disable Start at Login" : "Start at Login"
-        let loginItem = NSMenuItem(title: loginTitle, action: #selector(toggleStartAtLoginAction), keyEquivalent: "")
+        let loginItem = NSMenuItem(title: "Start at Login", action: #selector(toggleStartAtLoginAction), keyEquivalent: "")
         loginItem.state = settings.wantsStartAtLogin ? .on : .off
         menu.addItem(loginItem)
 

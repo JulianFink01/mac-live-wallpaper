@@ -13,6 +13,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pausedForSystemSleep = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if shouldTerminateLoginAgentDuplicate() {
+            NSApp.terminate(nil)
+            return
+        }
+
+        terminateDuplicateInstances()
         NSApp.setActivationPolicy(.accessory)
 
         menuBarController = MenuBarController(
@@ -35,8 +41,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    func applicationDidBecomeActive(_ notification: Notification) {
+        settings.refreshStartAtLoginStatus()
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         wallpaperController.closeAllWindows()
+    }
+
+    private func terminateDuplicateInstances() {
+        guard let bundleIdentifier = Bundle.main.bundleIdentifier else { return }
+
+        let currentPID = ProcessInfo.processInfo.processIdentifier
+        let duplicates = NSRunningApplication
+            .runningApplications(withBundleIdentifier: bundleIdentifier)
+            .filter { $0.processIdentifier != currentPID }
+
+        duplicates.forEach { app in
+            if !app.terminate() {
+                app.forceTerminate()
+            }
+        }
+    }
+
+    private func shouldTerminateLoginAgentDuplicate() -> Bool {
+        guard CommandLine.arguments.contains(LaunchAgentLoginItem.launchArgument),
+              let bundleIdentifier = Bundle.main.bundleIdentifier else {
+            return false
+        }
+
+        let currentPID = ProcessInfo.processInfo.processIdentifier
+        return NSRunningApplication
+            .runningApplications(withBundleIdentifier: bundleIdentifier)
+            .contains { $0.processIdentifier != currentPID }
     }
 
     private func bindState() {

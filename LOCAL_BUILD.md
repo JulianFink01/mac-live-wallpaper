@@ -24,6 +24,8 @@ Kopiere oder verschiebe diese App nach:
 
 Starte sie danach einmal aus `/Applications`. Wenn du `Start at Login` aktivierst, bleibt der Login-Item-Pfad stabil.
 
+Wenn `SMAppService.mainApp` für einen lokalen/ad-hoc signierten Build `notFound` meldet, nutzt LiveWallpaper automatisch einen lokalen LaunchAgent-Fallback in `~/Library/LaunchAgents/com.julianfink.LiveWallpaper.login.plist`.
+
 ## Warum nach /Applications?
 
 macOS Login Items merken sich die App-Bundle-Identität und den App-Pfad. Wenn du die App aus `DerivedData` oder einem temporären Build-Ordner startest, kann der Start-at-Login-Eintrag später ins Leere zeigen.
@@ -34,6 +36,10 @@ Für lokalen Dauerbetrieb ist daher empfehlenswert:
 2. `LiveWallpaper.app` nach `/Applications` legen.
 3. App aus `/Applications` starten.
 4. In der App `Start at Login` aktivieren.
+
+Wenn du später eine neue Version baust, ersetze die App in `/Applications`, starte diese neue Kopie einmal manuell und prüfe den Toggle erneut.
+
+Der Start-at-Login-Toggle bevorzugt `SMAppService.mainApp`. Falls macOS diese lokale App-Kopie nicht über ServiceManagement registrieren kann, schreibt und lädt die App stattdessen einen User-LaunchAgent. In System Settings erscheint dieser Fallback unter `App Background Activity`, nicht zwingend in der oberen `Open at Login`-Liste. Das ist für lokale Nutzung robust; für öffentliche Distribution bleibt Developer-ID-Signierung plus Notarization der sauberere Weg.
 
 ## Ohne Apple Developer Account
 

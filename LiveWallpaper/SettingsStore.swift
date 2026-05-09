@@ -35,6 +35,8 @@ final class SettingsStore: ObservableObject {
     }
 
     @Published var loginItemError: String?
+    @Published private(set) var loginItemStatus: SMAppService.Status
+    @Published private(set) var usesLaunchAgentFallback: Bool
 
     private let defaults: UserDefaults
 
@@ -63,8 +65,12 @@ final class SettingsStore: ObservableObject {
             aspectMode = .fill
         }
 
+        let status = SMAppService.mainApp.status
         let storedLoginPreference = defaults.object(forKey: Keys.wantsStartAtLogin) as? Bool
-        wantsStartAtLogin = storedLoginPreference ?? (SMAppService.mainApp.status == .enabled)
+        let fallbackEnabled = status == .notFound && LaunchAgentLoginItem.isEnabled
+        usesLaunchAgentFallback = fallbackEnabled
+        wantsStartAtLogin = storedLoginPreference ?? (status == .enabled || fallbackEnabled)
+        loginItemStatus = status
     }
 
     func setCurrentVideo(_ id: UUID?) {
@@ -81,10 +87,12 @@ final class SettingsStore: ObservableObject {
 
     func setStartAtLogin(_ enabled: Bool) {
         loginItemError = nil
+        loginItemStatus = SMAppService.mainApp.status
+        usesLaunchAgentFallback = loginItemStatus == .notFound && LaunchAgentLoginItem.isEnabled
 
         do {
             if enabled {
-                switch SMAppService.mainApp.status {
+                switch loginItemStatus {
                 case .enabled:
                     wantsStartAtLogin = true
                 case .requiresApproval:
@@ -92,28 +100,69 @@ final class SettingsStore: ObservableObject {
                     SMAppService.openSystemSettingsLoginItems()
                 case .notRegistered:
                     try SMAppService.mainApp.register()
+                    loginItemStatus = SMAppService.mainApp.status
                     wantsStartAtLogin = true
                 case .notFound:
-                    wantsStartAtLogin = false
-                    loginItemError = "Login item registration is unavailable for this app bundle."
+                    try LaunchAgentLoginItem.register()
+                    usesLaunchAgentFallback = true
+                    wantsStartAtLogin = true
                 @unknown default:
                     try SMAppService.mainApp.register()
+                    loginItemStatus = SMAppService.mainApp.status
                     wantsStartAtLogin = true
                 }
             } else {
-                if SMAppService.mainApp.status == .enabled || SMAppService.mainApp.status == .requiresApproval {
+                if usesLaunchAgentFallback {
+                    try LaunchAgentLoginItem.unregister()
+                    usesLaunchAgentFallback = false
+                } else if loginItemStatus == .enabled || loginItemStatus == .requiresApproval {
                     try SMAppService.mainApp.unregister()
                 }
+                loginItemStatus = SMAppService.mainApp.status
                 wantsStartAtLogin = false
             }
         } catch {
             loginItemError = error.localizedDescription
-            wantsStartAtLogin = SMAppService.mainApp.status == .enabled
+            loginItemStatus = SMAppService.mainApp.status
+            usesLaunchAgentFallback = loginItemStatus == .notFound && LaunchAgentLoginItem.isEnabled
+            wantsStartAtLogin = loginItemStatus == .enabled || usesLaunchAgentFallback
             SMAppService.openSystemSettingsLoginItems()
         }
     }
 
     func refreshStartAtLoginStatus() {
-        wantsStartAtLogin = SMAppService.mainApp.status == .enabled || (wantsStartAtLogin && SMAppService.mainApp.status == .requiresApproval)
+        loginItemStatus = SMAppService.mainApp.status
+        usesLaunchAgentFallback = loginItemStatus == .notFound && LaunchAgentLoginItem.isEnabled
+        wantsStartAtLogin = loginItemStatus == .enabled || usesLaunchAgentFallback || (wantsStartAtLogin && loginItemStatus == .requiresApproval)
+        if loginItemStatus != .notFound {
+            loginItemError = nil
+        }
+    }
+
+    var isLoginItemAvailable: Bool {
+        true
+    }
+
+    var loginItemStatusText: String {
+        if usesLaunchAgentFallback {
+            return "Start at Login is enabled with a local LaunchAgent fallback. macOS shows this under App Background Activity, not necessarily in the Open at Login list."
+        }
+
+        switch loginItemStatus {
+        case .enabled:
+            return "Start at Login is enabled."
+        case .requiresApproval:
+            return "Start at Login needs approval in System Settings."
+        case .notRegistered:
+            return "Start at Login is disabled."
+        case .notFound:
+            return "SMAppService cannot register this local/ad-hoc bundle, so LiveWallpaper will use a local LaunchAgent fallback. This appears in System Settings under App Background Activity."
+        @unknown default:
+            return "Start at Login status is unknown."
+        }
+    }
+
+    var appBundlePath: String {
+        Bundle.main.bundleURL.path
     }
 }
