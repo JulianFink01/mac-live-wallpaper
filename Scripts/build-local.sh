@@ -10,6 +10,7 @@ APP_PATH="$DERIVED_DATA/Build/Products/Release/$APP_NAME.app"
 
 cd "$PROJECT_ROOT"
 
+rm -rf "$BUILD_DIR/SwiftModuleCache"
 mkdir -p "$BUILD_DIR/SwiftModuleCache"
 swift -module-cache-path "$BUILD_DIR/SwiftModuleCache" Tools/generate_app_icon.swift
 

@@ -20,7 +20,7 @@ final class VideoLibraryStore: ObservableObject {
     @Published var errorMessage: String?
 
     private let fileManager: FileManager
-    private let supportedExtensions = Set(["mp4", "mov", "m4v"])
+    nonisolated private static let supportedExtensions = Set(["mp4", "mov", "m4v"])
 
     private struct LibraryFile: Codable {
         var videos: [WallpaperVideo]
@@ -107,7 +107,13 @@ final class VideoLibraryStore: ObservableObject {
 
         do {
             let data = try Data(contentsOf: Self.libraryURL)
-            videos = try JSONDecoder.liveWallpaper.decode(LibraryFile.self, from: data).videos
+            let loadedVideos = try JSONDecoder.liveWallpaper.decode(LibraryFile.self, from: data).videos
+            videos = loadedVideos.filter { fileManager.fileExists(atPath: $0.fileURL.path) }
+
+            if videos.count != loadedVideos.count {
+                saveLibrary()
+                errorMessage = "Some saved videos were missing from Application Support and were removed from the library."
+            }
         } catch {
             videos = []
             errorMessage = "Could not read library.json: \(error.localizedDescription)"
@@ -124,6 +130,12 @@ final class VideoLibraryStore: ObservableObject {
     }
 
     private func importVideo(from sourceURL: URL) async throws -> WallpaperVideo {
+        try await Task.detached(priority: .userInitiated) {
+            try Self.importVideoSynchronously(from: sourceURL)
+        }.value
+    }
+
+    nonisolated private static func importVideoSynchronously(from sourceURL: URL) throws -> WallpaperVideo {
         let fileExtension = sourceURL.pathExtension.lowercased()
         guard supportedExtensions.contains(fileExtension) else {
             throw ImportError.unsupportedFileType
@@ -132,15 +144,19 @@ final class VideoLibraryStore: ObservableObject {
         let id = UUID()
         let destinationFileName = "\(id.uuidString).\(fileExtension)"
         let destinationURL = Self.videosDirectory.appendingPathComponent(destinationFileName, isDirectory: false)
+        let fileManager = FileManager.default
 
         if fileManager.fileExists(atPath: destinationURL.path) {
             try fileManager.removeItem(at: destinationURL)
         }
 
         try fileManager.copyItem(at: sourceURL, to: destinationURL)
+        guard fileManager.fileExists(atPath: destinationURL.path) else {
+            throw ImportError.copyFailed
+        }
 
         let asset = AVURLAsset(url: destinationURL)
-        let duration = try await asset.load(.duration)
+        let duration = try loadDuration(for: asset)
         guard duration.seconds.isFinite, duration.seconds > 0 else {
             try? fileManager.removeItem(at: destinationURL)
             throw ImportError.invalidVideo
@@ -158,7 +174,34 @@ final class VideoLibraryStore: ObservableObject {
         )
     }
 
-    private func generateThumbnail(for asset: AVAsset, duration: TimeInterval, id: UUID) throws -> String? {
+    nonisolated private static func loadDuration(for asset: AVAsset) throws -> CMTime {
+        let semaphore = DispatchSemaphore(value: 0)
+        var loadedDuration: CMTime = .invalid
+        var loadedError: Error?
+
+        asset.loadValuesAsynchronously(forKeys: ["duration"]) {
+            var error: NSError?
+            let status = asset.statusOfValue(forKey: "duration", error: &error)
+
+            if status == .loaded {
+                loadedDuration = asset.duration
+            } else {
+                loadedError = error ?? ImportError.invalidVideo
+            }
+
+            semaphore.signal()
+        }
+
+        semaphore.wait()
+
+        if let loadedError {
+            throw loadedError
+        }
+
+        return loadedDuration
+    }
+
+    nonisolated private static func generateThumbnail(for asset: AVAsset, duration: TimeInterval, id: UUID) throws -> String? {
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
         generator.maximumSize = CGSize(width: 640, height: 360)
@@ -184,6 +227,7 @@ final class VideoLibraryStore: ObservableObject {
 private enum ImportError: LocalizedError {
     case unsupportedFileType
     case invalidVideo
+    case copyFailed
 
     var errorDescription: String? {
         switch self {
@@ -191,6 +235,8 @@ private enum ImportError: LocalizedError {
             return "Only .mp4, .mov and .m4v files are supported."
         case .invalidVideo:
             return "The file does not look like a playable video."
+        case .copyFailed:
+            return "The video could not be copied into Application Support."
         }
     }
 }
